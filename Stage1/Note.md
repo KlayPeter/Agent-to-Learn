@@ -993,3 +993,202 @@ flowchart TD
 
 # 任务
 
+
+
+
+
+
+
+下面我们统一用：
+Node.js
+JavaScript
+OpenAI JavaScript SDK
+DeepSeek API
+Chat Completions
+
+- [ ] **会用一个 LLM API 完成普通对话。 **
+1. 创建项目
+
+配置密钥等
+
+2. 初始化客户端
+```js
+import "dotenv/config";
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.DEEPSEEK_API_KEY,
+  baseURL: "https://api.deepseek.com",
+});
+```
+
+3. 完成一个最简单得对话
+```js
+import "dotenv/config";
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.DEEPSEEK_API_KEY,
+  baseURL: "https://api.deepseek.com",
+});
+
+async function chat(userMessage) {
+  const response = await client.chat.completions.create({
+    model: "deepseek-chat",
+    messages: [ 
+      // 对话历史
+      // system，user，assistant，tool
+      {
+        role: "system",
+        content: "你是一个有帮助的 JavaScript 学习助手。",
+      },
+      {
+        role: "user",
+        content: userMessage,
+      },
+    ],
+  });
+
+  const answer = response.choices[0].message.content;
+  console.log(answer);
+}
+chat("请用简单的话解释什么是闭包。");
+
+```
+
+4. 保存对话历史
+```js
+//如果第二次请求没有把第一次对话传进去，模型通常不知道用户叫 Peter
+//正确方式是维护一个数组：
+const messages = [
+  {
+    role: "system",
+    content: "你是一个有帮助的助手。",
+  },
+];
+
+async function chat(userMessage) {
+  messages.push({
+    role: "user",
+    content: userMessage,
+  });
+
+  const response = await client.chat.completions.create({
+    model: "deepseek-chat",
+    messages,
+  });
+
+  const assistantMessage = response.choices[0].message;
+
+  messages.push(assistantMessage);
+
+  return assistantMessage.content;
+}
+
+```
+
+- [ ] **会让模型输出结构化 JSON。** 
+方法有很多
+1. 最简单得提示词得方法
+2. 使用函数调用, 函数调用可以输出结构化 JSON，并且可以调用外部工具
+3. 捕获解析错误
+
+结构化输出不是为了让回答“看起来整齐”。
+
+它的真正用途是：
+
+模型自然语言能力
+        ↓
+转换成程序可读取的数据
+        ↓
+程序根据数据继续执行
+
+例如：
+
+{
+  "action": "create_task",
+  "title": "修复登录页面",
+  "assignee": "Peter",
+  "priority": "high"
+}
+
+
+- [ ] 会定义一个工具函数，例如 search、calculator、read_file。
+1. 工具只是普通 JavaScript 函数，里面有方法并且有参数
+2. 工具函数和工具描述不是同一个东西
+工具函数是程序真正执行的代码
+工具描述是告诉模型如何调用工具的 一份 JSON Schema ，有固定的格式
+
+3. JSON Schema 每一部分是什么意思
+type
+name
+description
+parameters
+properties
+required
+enum
+
+
+
+4. 工具设计原则
+工具应该：
+
+名字明确；
+描述明确；
+参数少而清晰；
+每个参数有说明；
+尽量限制可选值；
+工具只承担一个职责；
+返回容易理解的数据。
+
+- [ ] 会解析模型的 tool call / function call。 
+现在把工具定义传给模型。
+
+const response = await client.chat.completions.create({
+  model: "deepseek-chat",
+  messages: [
+    {
+      role: "user",
+      content: "帮我计算 2345 乘以 6789",
+    },
+  ],
+  tools,
+  tool_choice: "auto",
+});
+
+tool_choice: "auto" 表示：
+
+模型自己判断：
+1. 直接回答；
+```
+{
+  role: "assistant",
+  content: "2345 乘以 6789 等于……",
+  tool_calls: undefined
+}
+```
+2. 或调用某个工具。
+```
+{
+  role: "assistant",
+  content: null,
+  tool_calls: [
+    {
+      id: "call_abc123",
+      type: "function",
+      function: {
+        name: "calculator",
+        arguments:
+          '{"operation":"multiply","a":2345,"b":6789}'
+      }
+    }
+  ]
+}
+```
+
+
+- [ ] 会执行工具，并把工具结果喂回模型。 
+弄个循环不断追加message
+必须保存 assistant 的工具调用消息
+
+- [ ] 会给 agent loop 加最大步数、超时和错误处理。
