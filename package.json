@@ -1,0 +1,26 @@
+{
+  "name": "agent-to-learn",
+  "version": "1.0.0",
+  "description": "A curated AI Agent learning roadmap for people who want to build useful, reliable agents instead of collecting random links.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KlayPeter/Agent-to-Learn.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/KlayPeter/Agent-to-Learn/issues"
+  },
+  "homepage": "https://github.com/KlayPeter/Agent-to-Learn#readme",
+  "dependencies": {
+    "axios": "^1.18.1",
+    "dotenv": "^17.4.2",
+    "openai": "^7.0.0"
+  }
+}

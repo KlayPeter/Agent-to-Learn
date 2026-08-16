@@ -113,7 +113,7 @@ async function runAgent(userQuery, { maxSteps = 5, timeoutSeconds = 60 } = {}) {
     {
       role: 'system',
       content:
-        '你是一个有用的 AI 助手。如果需要，你可以调用工具来帮助回答问题。',
+        '角色：AI 助手。根据问题决定是否调用工具，并基于工具结果回答。',
     },
     {
       role: 'user',

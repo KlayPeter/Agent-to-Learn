@@ -1,225 +1,140 @@
 # Stage 1: 构建最小 Agent Loop
-做之前看资料之前我认知里面的Agent Loop
 
-Agent loop:
+做之前，或者说在看官方资料之前，我认知里面的 Agent Loop 其实挺单纯的。
+
+我觉得 Agent loop 应该是这样一个流程：
 Input -> LLM think -> LLM Action -> Environment -> LLM observe
-- 输入内容
-- 大语言模型 进行 < think > 
-- 然后根据< think >的结果进行< action > 
-- < action > 的结果会反馈给< observe > 
-- 大语言模型 进行 < observe >
-- 然后大语言模型 根据< observe >进行< think >
-- 这是一个循环
-- 可以结束的条件
 
-很简单的一个逻辑
+这里的 `think` 只是我给流程标出来的“决策 / 推理”阶段，不代表程序一定能拿到，或者需要展示模型内部思考。
 
-阅读这些资料
+具体拆解下来也就是：
+- 用户给个输入内容
+- 大语言模型 进行 `< think >`
+- 然后根据 `< think >` 的结果进行 `< action >`
+- 这个 `< action >` 的结果会反馈给环境，也就是 `< observe >` 环节
+- 大语言模型接着进行 `< observe >`
+- 然后大语言模型再根据 `< observe >` 到的东西继续去 `< think >`
+- 这整个就是一个不断往复的循环
+- 直到满足某个可以结束的条件，循环终止。
+
+这就是个很简单、很直观的逻辑。
+---
+
+我参考的 Agent 入门资料：https://datawhalechina.github.io/hello-agents/#/./README
+
+然后我开始带着这个想法去阅读这些官方资料：
 - [OpenAI Function Calling](https://platform.openai.com/docs/guides/function-calling)
 - [Gemini API Function Calling](https://ai.google.dev/gemini-api/docs/function-calling)
 - [Claude Tool Use](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview)
 
+看名字也就知道了，这三篇主要讲的都是 function call 以及 tool 调用。
+那为什么做 Agent 必须要知道这两个东西，并且必须要学会呢？
 
-看名字都知道了是讲述function call 的以及tool 调用的
-为什么需要知道这两个并且学会
+想了想，主要原因是 LLM 只能输出文本，不能凭空完成现实操作，例如发送邮件或查询数据库。因此需要自行实现 function 或 tool，并定义协议，再用提示词约束模型输出可识别的格式和参数。程序负责真正调用、执行并回传结果，直到 LLM 判断任务完成并生成最终结果。
 
-因为llm 只能输出文本内容 不能直接去凭空实现一些功能，所以我们必须要写一些funcion或者是tool 并且规范一些协议出来  然后利用提示词等的约束让llm 能够输出我们function 或者 tool 能识别的格式以及传递参数，然后由我们程序去调用，执行，再把结果反馈给llm，直到llm 判断任务已经完成 给出最终结果
+那么问题来了，到底该怎么在代码里构建一个 agent loop，以及如何进行 function call 呢？
 
-那么该如何构建一个agent loop 如何进行function call呢？
-
-
-gpt的文章：
-我看了就是关于函数带哦用的
-工作原理：其实和我们上面说的差不多
-说的是工具的调用流程（官网上讲的） 应用程序和模型之间通过openAi api 进行的一系列交互：
+先看看 GPT 的文章：
+我看了一下，核心就是讲函数调用的。
+工作原理与前面的理解一致：应用程序和模型通过 OpenAI API 进行一系列交互，官方资料将其描述为以下调用流程：
 1. 使用模型对可以调用的工具发出请求
-2. 接收到来自模型的工具调用
-3. 使用来自工具调用的输入，在应用程序端执行代码
-4. 使用工具输出向模型发出第二个请求
-5. 接受模型的最终的响应
+2. 接收到来自模型的工具调用（Tool Call）
+3. 使用工具调用给出的输入参数，在应用程序端执行代码
+4. 把工具执行完的输出再次发给模型，进行第二次请求
+5. 最终接受模型的响应
 
-主要是更实际一点的一些代码上的
-gpt提供了一个工具，然后结合这个工具我来编写一些代码可以跑的那种
+主要是想看看更实际一点的代码是怎么写的。
+GPT 官方提供了一个带工具的简单示例。下面这段保留的是调用流程伪代码，重点是看清 Tool Call 和 Tool Result 如何往返；真实运行时还要补完整 Schema、参数解析和错误处理：
 
-一个简单的示例：
 ```python
 from openai import OpenAI
 import json
 
 client = OpenAI()
+input_list = [{"role": "user", "content": "查询今天的星座运势"}]
 
-# 1. Define a list of callable tools for the model
-tools = [
-    {
-        "type": "function",
-        "name": "get_horoscope",
-        "description": "Get today's horoscope for an astrological sign.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "sign": {
-                    "type": "string",
-                    "description": "An astrological sign like Taurus or Aquarius",
-                },
-            },
-            "required": ["sign"],
-        },
-    },
-]
+# 1. 定义好模型能用的工具列表
+tools = [{
+    "type": "function",
+    "name": "get_horoscope",
+    "description": "Get today's horoscope for an astrological sign.",
+    "parameters": { ... }
+}]
 
+# 2. 带着工具去请求模型
+response = client.responses.create(model="gpt-5.6", tools=tools, input=input_list)
 
-def get_horoscope(sign):
-    return f"{sign}: Next Tuesday you will befriend a baby otter."
+# 3. 拦截模型的函数调用请求，执行本地代码逻辑
+while True:
+    tool_calls = [item for item in response.output if item.type == "function_call"]
+    if not tool_calls:
+        print(response.output_text)
+        break
 
+    # 3. 保留模型输出，并执行本地工具
+    input_list += response.output
+    for item in tool_calls:
+        args = json.loads(item.arguments)
+        horoscope = get_horoscope(**args)
 
-# Create a running input list we will add to over time
-input_list = [{"role": "user", "content": "What is my horoscope? I am an Aquarius."}]
+        # 4. Tool Result 必须关联原来的 call_id
+        input_list.append({
+            "type": "function_call_output",
+            "call_id": item.call_id,
+            "output": json.dumps(horoscope),
+        })
 
-# 2. Prompt the model with tools defined
-response = client.responses.create(
-    model="gpt-5.6",
-    tools=tools,
-    input=input_list,
-)
-
-# Save function call outputs for subsequent requests
-input_list += response.output
-
-for item in response.output:
-    if item.type == "function_call":
-        if item.name == "get_horoscope":
-            # 3. Execute the function logic for get_horoscope
-            sign = json.loads(item.arguments)["sign"]
-            horoscope = get_horoscope(sign)
-
-            # 4. Provide function call results to the model
-            input_list.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": item.call_id,
-                    "output": horoscope,
-                }
-            )
-
-print("Final input:")
-print(input_list)
-
-response = client.responses.create(
-    model="gpt-5.6",
-    instructions="Respond only with a horoscope generated by a tool.",
-    tools=tools,
-    input=input_list,
-)
-
-# 5. The model should be able to give a response!
-print("Final output:")
-print(response.model_dump_json(indent=2))
-print("\n" + response.output_text)
+    # 5. 带着 Tool Result 再次请求模型
+    response = client.responses.create(model="gpt-5.6", tools=tools, input=input_list)
 ```
 
-
-
-
-有些需要知道和强化的
-**上下文无关文法**
-
-
-claude code 的文章
-好吧 claude code也是弄了个client
-它是
+然后是 Anthropic Claude 的文章：
+好吧，Claude Code 也是弄了个 client，它的逻辑长这样：
 ```python
 client = anthropic.Anthropic()
+tools = [{
+    "name": "get_weather",
+    "description": "Get the current weather for a given location.",
+    "input_schema": { ... }
+}]
 
-tools = [
-    {
-        "name": "get_weather",
-        "description": "Get the current weather for a given location.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "location": {
-                    "type": "string",
-                    "description": "City and state, e.g. San Francisco, CA",
-                }
-            },
-            "required": ["location"],
-        },
-    }
-]
-messages = [{"role": "user", "content": "What's the weather in San Francisco?"}]
-
-# Claude replies with a tool_use block naming the tool and its arguments.
-response = client.messages.create(
-    model="claude-opus-5",
-    max_tokens=1024,
-    tools=tools,
-    # Ask for at most one tool call per turn.
-    tool_choice={"type": "auto", "disable_parallel_tool_use": True},
-    messages=messages,
-)
+# Claude 回复一个 tool_use 块
+response = client.messages.create(model="claude-opus-5", tools=tools, messages=messages)
 tool_use = next(block for block in response.content if block.type == "tool_use")
-print(f"Claude called {tool_use.name} with {json.dumps(tool_use.input)}")
 
-# Run the tool, then send the result back in a tool_result block.
-weather = "15 degrees Celsius, partly cloudy"  # your weather lookup goes here
+# 执行本地工具，返回 tool_result
+weather = "15 degrees Celsius, partly cloudy"
 messages += [
     {"role": "assistant", "content": response.content},
-    {
-        "role": "user",
-        "content": [
-            {"type": "tool_result", "tool_use_id": tool_use.id, "content": weather}
-        ],
-    },
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": weather}]}
 ]
-followup = client.messages.create(
-    model="claude-opus-5",
-    max_tokens=1024,
-    tools=tools,
-    tool_choice={"type": "auto", "disable_parallel_tool_use": True},
-    messages=messages,
-)
-
-# Claude uses the result to answer the original question.
-final_text = next(block for block in followup.content if block.type == "text")
-print(final_text.text)
 ```
 
-
-Gemini 的
+#### (3) Google Gemini 的实现思路
+Gemini 的调用同样也是提供 `parameters`，并在返回的 `steps` 中解析 `function_call`：
 ```python
 from google import genai
-
 schedule_meeting_function = {
     "type": "function",
     "name": "schedule_meeting",
-    "description": "Schedules a meeting with specified attendees at a given time and date.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "attendees": {"type": "array", "items": {"type": "string"}},
-            "date": {"type": "string", "description": "Date (e.g., '2024-07-29')"},
-            "time": {"type": "string", "description": "Time (e.g., '15:00')"},
-            "topic": {"type": "string", "description": "The meeting topic."},
-        },
-        "required": ["attendees", "date", "time", "topic"],
-    },
+    "description": "Schedules a meeting...",
+    "parameters": { ... }
 }
-
-client = genai.Client()
 
 interaction = client.interactions.create(
     model="gemini-3.6-flash",
-    input="Schedule a meeting with Bob and Alice for 03/14/2025 at 10:00 AM about Q3 planning.",
+    input="Schedule a meeting...",
     tools=[{"type": "function", **schedule_meeting_function}],
 )
 
 for step in interaction.steps:
     if step.type == "function_call":
         print(f"Function to call: {step.name}")
-        print(f"Arguments: {step.arguments}")
 ```
 
+*(注：在查阅这些资料时，我也注意到了**上下文无关文法**等进阶概念，这些会在后续工程化中进一步强化。)*
 
+---
 
 # 个人看完资料的笔记和思考：
 
@@ -231,7 +146,7 @@ for step in interaction.steps:
 >
 > 三者核心思想几乎一致：
 >
-> **LLM 不负责执行代码，而是负责决定什么时候调用工具，并生成调用参数。真正执行工具的是你的程序（Agent / Backend）。**
+> **LLM 不负责执行代码，而是负责决定调用时机并生成参数；运行 Agent 的程序（Agent / Backend）负责真正执行工具。**
 
 ## 一、什么是 Function Calling？
 
@@ -729,6 +644,9 @@ search_order(order_id)
 
 ```text
 refund_order(order_id, amount)
+```
+
+```mermaid
 flowchart LR
     A[查询订单] --> B[获得订单信息]
     B --> C[判断是否允许退款]
@@ -766,23 +684,25 @@ Observe → Think → Act → Observe
 
 Strict Mode 是 OpenAI Function Calling 中用于约束工具参数输出的一种机制。
 
-开启方式通常是在 Tool 定义中设置：
+开启方式通常是在完整 Tool 定义中设置。下面是 Responses API 风格的最小形状：
 
 ```json
 {
-  "strict": true
+  "type": "function",
+  "name": "get_weather",
+  "strict": true,
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "city": { "type": "string" }
+    },
+    "required": ["city"],
+    "additionalProperties": false
+  }
 }
 ```
 
 它的主要作用是要求模型生成的参数严格符合指定的 JSON Schema。
-
-例如，Schema 要求：
-
-```json
-{
-  "city": "string"
-}
-```
 
 开启 Strict Mode 后，模型应该返回：
 
@@ -836,7 +756,9 @@ Strict Mode 主要解决的是结构稳定性问题，例如：
 
 因此，Strict Mode 只能保证：
 
-> 模型生成的参数在结构上更可靠。
+> 模型生成的参数遵守声明的 Schema。
+
+同时需要注意：严格模式要求每个对象声明 `additionalProperties: false`，并将 `properties` 中的字段全部写进 `required`。想保留可选字段时，可以使用包含 `null` 的类型表达“字段存在但值为空”。不同 API 的 Tool 外层形状略有区别；当前 Stage1 的 DeepSeek 代码走的是 Chat Completions 风格。
 
 它不能替代：
 
@@ -989,24 +911,21 @@ flowchart TD
 
 
 
-然后结合上吗的三篇三大家的函数调用的方法，我总结并输出了一个最小的Agent 出来
+结合前面三份函数调用资料，我整理并写出了一个最小 Agent。
 
-# 任务
+# 本阶段的记录和产物
 
+**产出**：一个 50-150 行的最小 agent，可以选择工具、执行工具、返回最终答案。
+[代码实现已产出：minial_agent.js](./minial_agent.js)
 
-
-
-
-
-
-下面我们统一用：
+本阶段统一使用：
 Node.js
 JavaScript
 OpenAI JavaScript SDK
 DeepSeek API
 Chat Completions
 
-- [ ] **会用一个 LLM API 完成普通对话。 **
+- [x] **已用一个 LLM API 完成普通对话。**
 1. 创建项目
 
 配置密钥等
@@ -1022,7 +941,7 @@ const client = new OpenAI({
 });
 ```
 
-3. 完成一个最简单得对话
+3. 完成一个最简单的对话
 ```js
 import "dotenv/config";
 import OpenAI from "openai";
@@ -1040,7 +959,7 @@ async function chat(userMessage) {
       // system，user，assistant，tool
       {
         role: "system",
-        content: "你是一个有帮助的 JavaScript 学习助手。",
+        content: "角色：JavaScript 学习助手。回答应准确、简洁，并给出必要的示例。",
       },
       {
         role: "user",
@@ -1063,7 +982,7 @@ chat("请用简单的话解释什么是闭包。");
 const messages = [
   {
     role: "system",
-    content: "你是一个有帮助的助手。",
+    content: "角色：通用助手。回答应准确、简洁。",
   },
 ];
 
@@ -1087,11 +1006,12 @@ async function chat(userMessage) {
 
 ```
 
-- [ ] **会让模型输出结构化 JSON。** 
-方法有很多
-1. 最简单得提示词得方法
-2. 使用函数调用, 函数调用可以输出结构化 JSON，并且可以调用外部工具
-3. 捕获解析错误
+- [ ] **单独使用 Structured Outputs 让最终回答稳定输出 JSON。**
+
+这部分还没有单独完成。这里需要区分两种情况：
+1. 用提示词要求 JSON，再自行解析和捕获错误；
+2. 用 `response_format` / JSON Schema 约束最终回答的结构；
+3. Function Calling 约束的是工具调用参数，也可以调用外部工具，但不等于最终回答自动成为结构化 JSON。
 
 结构化输出不是为了让回答“看起来整齐”。
 
@@ -1113,7 +1033,7 @@ async function chat(userMessage) {
 }
 
 
-- [ ] 会定义一个工具函数，例如 search、calculator、read_file。
+- [x] 已定义一个工具函数，例如 calculator。
 1. 工具只是普通 JavaScript 函数，里面有方法并且有参数
 2. 工具函数和工具描述不是同一个东西
 工具函数是程序真正执行的代码
@@ -1141,9 +1061,10 @@ enum
 工具只承担一个职责；
 返回容易理解的数据。
 
-- [ ] 会解析模型的 tool call / function call。 
+- [x] 已解析模型的 tool call / function call。
 现在把工具定义传给模型。
 
+```js
 const response = await client.chat.completions.create({
   model: "deepseek-chat",
   messages: [
@@ -1155,6 +1076,7 @@ const response = await client.chat.completions.create({
   tools,
   tool_choice: "auto",
 });
+```
 
 tool_choice: "auto" 表示：
 
@@ -1187,8 +1109,8 @@ tool_choice: "auto" 表示：
 ```
 
 
-- [ ] 会执行工具，并把工具结果喂回模型。 
-弄个循环不断追加message
-必须保存 assistant 的工具调用消息
+- [x] 已执行工具，并把工具结果喂回模型。
 
-- [ ] 会给 agent loop 加最大步数、超时和错误处理。
+实现中通过循环追加 `messages`，并保留 assistant 的工具调用消息。
+
+- [x] 已给 agent loop 加入最大步数、超时和错误处理。
